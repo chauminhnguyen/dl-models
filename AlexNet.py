@@ -15,24 +15,35 @@ class AlexNet(BaseModel):
         self.model = Sequential([
             Conv2D(96, activation=self.activation, kernel_size=11, strides=4, input_shape=self.shape),
             MaxPooling2D(pool_size=3, strides=2),
-            Conv2D(256, activation=self.activation, kernel_size=5, padding=2),
+            Conv2D(256, activation=self.activation, kernel_size=5, padding='same'),
             MaxPooling2D(pool_size=3, strides=2),
-            Conv2D(384, activation=self.activation, kernel_size=3, padding=1),
-            Conv2D(384, activation=self.activation, kernel_size=3, padding=1),
-            Conv2D(256, activation=self.activation, kernel_size=3, padding=1),
+            Conv2D(384, activation=self.activation, kernel_size=3, padding='same'),
+            Conv2D(384, activation=self.activation, kernel_size=3, padding='same'),
+            Conv2D(256, activation=self.activation, kernel_size=3, padding='same'),
             MaxPooling2D(pool_size=3, strides=2),
             Flatten(),
             Dense(4096, activation=self.activation, use_bias=True),
+            Dropout(0.2),
             Dense(4096, activation=self.activation, use_bias=True),
+            Dropout(0.2),
             Dense(self.num_classes, activation='softmax', use_bias=True)
         ])
 
         return self.model
 
-    def train(self, x_train, y_train):
+    def train(self, x_train, y_train, epoch=50):
         self.model.compile(optimizer=Adam(), loss='categorical_crossentropy', metrics=['acc'])
-        callbacks=[keras.callbacks.ReduceLROnPlateau( factor = 0.1, patience = 3, min_lr = 0.00001, verbose = 1 )]
+        callbacks=[tf.keras.callbacks.ReduceLROnPlateau( factor = 0.1, patience = 3, min_lr = 0.00001, verbose = 1 )]
         return self.model.fit(x_train, y_train, epochs=epoch, callbacks = callbacks, validation_split = 0.3)
+
+
+def process_images(image, label):
+    # Normalize images to have a mean of 0 and standard deviation of 1
+    image = tf.image.per_image_standardization(image)
+    # Resize images from 32x32 to 277x277
+    image = tf.image.resize(image, (227,227))
+    return image, label
+
 
 
 from matplotlib import pyplot
@@ -41,34 +52,39 @@ from keras.datasets import fashion_mnist
 (trainX, trainy), (testX, testy) = fashion_mnist.load_data()
 
 num_classes = 10
-img_width = 28
-img_heigh = 28
-img_ch = 1
-input_shape = (img_width, img_heigh, img_ch)
 
 # normalize data
 trainX, testX = trainX / 255., testX / 255.
 
-# reshape input
-trainX = trainX.reshape(trainX.shape[0], *input_shape)
-testX = testX.reshape(testX.shape[0], *input_shape)
+trainX = np.array(trainX).reshape(trainX.shape[0], trainX.shape[1], trainX.shape[2], 1)
+testX = np.array(testX).reshape(testX.shape[0], testX.shape[1], testX.shape[2], 1)
+
+resized_trainX = tf.image.resize_with_pad(
+    trainX[:10000], 227, 227, method=ResizeMethod.BILINEAR,
+    antialias=False
+)
+
+resized_testX = tf.image.resize_with_pad(
+    testX[:10000], 227, 227, method=ResizeMethod.BILINEAR,
+    antialias=False
+)
 
 # one-hot
-trainy = tf.keras.utils.to_categorical(trainy)
-testy = tf.keras.utils.to_categorical(testy)
+trainy = tf.keras.utils.to_categorical(trainy[:10000])
+testy = tf.keras.utils.to_categorical(testy[:10000])
 
 # summarize loaded dataset
-print('Train: X=%s, y=%s' % (trainX.shape, trainy.shape))
-print('Test: X=%s, y=%s' % (testX.shape, testy.shape))
-# show the figure
-pyplot.show()
-model = VGG16((28, 28, 1), 'relu', 10)
+print('Train: X=%s, y=%s' % (resized_trainX.shape, trainy.shape))
+print('Test: X=%s, y=%s' % (resized_testX.shape, testy.shape))
+# # show the figure
+# pyplot.show()
+model = AlexNet((227, 227, 1), 'relu', 10)
 model.build()
 model.summary()
-hist = model.train(trainX, trainy)
+hist = model.train(resized_trainX, trainy)
 model.save('./')
 
-test = np.expand_dims(testX[6], axis=0)
+test = np.expand_dims(resized_testX[6], axis=0)
 y_predict = model.predict(test)
 pyplot.imshow(test[0,:,:,0], cmap=pyplot.get_cmap('gray'))
 y = to_categorical(np.argmax(y_predict, axis = 1))
